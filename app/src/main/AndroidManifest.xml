@@ -1,0 +1,65 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Permiso para usar Internet -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.App_savemetric"
+        android:usesCleartextTraffic="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.App_savemetric">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".InicioActivity"
+            android:label="Inicio"
+            android:exported="false" />
+        <activity
+            android:name=".RegistroActivity"
+            android:label="Registro"
+            android:exported="false" />
+        <activity
+            android:name=".PorterosActivity" />
+        <activity
+            android:name=".CreatePorteroActivity"
+            android:label="Crear Portero"
+            android:exported="false" />
+        <activity
+            android:name=".CategoriasActivity"
+            android:exported="false"
+            android:label="Categorías" />
+        <activity
+            android:name=".EquiposActivity"
+            android:label="Equipos"
+            android:exported="false" />
+        <activity
+            android:name=".TiempoActivity"
+            android:label="Tiempo"
+            android:exported="false" />
+        <activity
+            android:name=".ModalidadActivity"
+            android:label="Modalidad"
+            android:exported="false" />
+        <activity
+            android:name=".PartidoActivity"
+            android:label="Partido"
+            android:exported="false" />
+
+    </application>
+
+</manifest>
