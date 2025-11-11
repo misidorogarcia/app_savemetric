@@ -34,11 +34,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.app.Activity
 import com.misidoro.app_savemetric.data.Accion
 import com.misidoro.app_savemetric.data.AccionPool
 import com.misidoro.app_savemetric.data.Direcciones
@@ -54,6 +57,7 @@ import com.misidoro.app_savemetric.data.Posicion
 import com.misidoro.app_savemetric.data.Resultado
 import com.misidoro.app_savemetric.data.SessionManager
 import com.misidoro.app_savemetric.ui.theme.App_savemetricTheme
+import com.misidoro.app_savemetric.EstadisticaTipo
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -232,7 +236,7 @@ private fun EstadisticaTipoSelector(
 }
 
 @Composable
-private fun EstadisticaPanel(tipo: EstadisticaTipo) {
+fun EstadisticaPanel(tipo: EstadisticaTipo) {
     val s by EstadisticaStore.global.collectAsState()
 
     fun pct(numerador: Int, denominador: Int): String {
@@ -333,9 +337,21 @@ private fun PartidoScreen(
     val prorrogaStarted = remember { mutableStateOf(false) } // nuevo: controla prórroga
     val context = LocalContext.current
 
+    // Leer preferencia "registrar sin tiempo" y mantener en estado
+    val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+    val registrarSinTiempoState = remember { mutableStateOf(prefs.getBoolean("registrar_sin_tiempo", false)) }
+    // observar cambios en prefs si TiempoActivity puede cambiarla y volver a esta Activity
+    LaunchedEffect(Unit) {
+        // actualización ligera al recomponer/resume
+        registrarSinTiempoState.value = prefs.getBoolean("registrar_sin_tiempo", false)
+    }
+
     // Usar EstadisticaManager para gestionar instancias según porteros
-    val estadisticaManager = remember { EstadisticaManager() }
-    val estadisticaInitialized = remember { mutableStateOf(false) }
+    val estadisticaManager = remember {
+        EstadisticaManager().apply {
+            initForPorteros(MatchPorterosStore.getPorteros())
+        }
+    }
 
     // detectar VIP y elegir valor por defecto / habilitar opciones
     val isVip = SessionManager.getUser()?.vip == true
@@ -349,15 +365,6 @@ private fun PartidoScreen(
     val sending = remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
-
-    // Inicializar EstadisticaManager la primera vez que se arranca el crono
-    LaunchedEffect(runningState.value) {
-        if (runningState.value && !estadisticaInitialized.value) {
-            val porteros = MatchPorterosStore.getPorteros()
-            estadisticaManager.initForPorteros(porteros)
-            estadisticaInitialized.value = true
-        }
-    }
 
     // Tiempo absoluto usado para almacenar acciones
     fun currentAbsoluteSeconds(): Long = secondHalfOffset.value + secondsState.value
@@ -397,7 +404,6 @@ private fun PartidoScreen(
     val fechaText = if (partido.fecha.time > 0L) sdf.format(partido.fecha) else "Sin fecha"
 
     // OBS: observamos la estadística global para forzar recomposición cuando cambien estadísticas.
-    // Esto permite que los porcentajes por posición se actualicen en tiempo real.
     val globalStat by EstadisticaStore.global.collectAsState()
 
     fun pctForTipo(tipo: EstadisticaTipo, e: Estadistica): String {
@@ -412,6 +418,10 @@ private fun PartidoScreen(
             EstadisticaTipo.EFECTIVA -> fmt(e.paradasValidas, e.accionesEfectivas)
         }
     }
+
+    // nueva bandera: modalidad básica -> solo mostrar ND
+    val isBasico = modalidad.equals("basico", ignoreCase = true)
+    val registrarSinTiempo = registrarSinTiempoState.value
 
     Column(
         modifier = Modifier
@@ -435,13 +445,10 @@ private fun PartidoScreen(
 
         Spacer(modifier = Modifier.size(8.dp))
 
-        // Selector de tipo de estadística (solo un activo).
-        // Si no es VIP: por defecto EFECTIVA y las otras dos están deshabilitadas.
         EstadisticaTipoSelector(current = estadisticaTipo.value, isVip = isVip) { seleccionado ->
             if (isVip) {
                 estadisticaTipo.value = seleccionado
             } else {
-                // si no es VIP, forzar EFECTIVA y ignorar cambios
                 estadisticaTipo.value = EstadisticaTipo.EFECTIVA
             }
         }
@@ -452,27 +459,48 @@ private fun PartidoScreen(
 
         Spacer(modifier = Modifier.size(8.dp))
 
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { runningState.value = !runningState.value }) {
-                Text(if (runningState.value) "Pausar" else "Iniciar")
+        // Mostrar inicio/pausa y temporizador sólo si NO estamos en modo "registrar sin tiempo"
+        if (!registrarSinTiempo) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { runningState.value = !runningState.value }) {
+                    Text(if (runningState.value) "Pausar" else "Iniciar")
+                }
+                Spacer(modifier = Modifier.size(8.dp))
+                Text(text = timerText + (if (matchDurationSec > 0) halfLabel else ""), color = timerColor, modifier = Modifier.padding(start = 12.dp))
             }
-            Spacer(modifier = Modifier.size(8.dp))
-            Text(text = timerText + (if (matchDurationSec > 0) halfLabel else ""), color = timerColor, modifier = Modifier.padding(start = 12.dp))
+            Spacer(modifier = Modifier.size(12.dp))
+        } else {
+            // en modo sin tiempo, asegurar que el temporizador esté parado y no muestre mensajes
+            runningState.value = false
         }
 
-        Spacer(modifier = Modifier.size(12.dp))
-
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (p in Posicion.values()) {
-                // obtener estadística para la posición (snapshot)
-                val posEst = EstadisticaStore.getForPosition(p)
+            val porterosList = MatchPorterosStore.getPorteros()
+            val statsVersion by EstadisticaStore.version.collectAsState()
+
+            for (pos in Posicion.values()) {
+                if (isBasico && pos != Posicion.ND) continue
+
+                val posEst = EstadisticaStore.getForPosition(pos)
+                val p1 = porterosList.getOrNull(0)
+                val p2 = porterosList.getOrNull(1)
+                @Suppress("UNUSED_VARIABLE")
+                val vRef = statsVersion
+
+                val est1 = estadisticaManager.getForPorteroAndPos(p1?.id, pos)
+                val est2 = estadisticaManager.getForPorteroAndPos(p2?.id, pos)
+
+                val pct1 = est1?.let { pctForTipo(estadisticaTipo.value, it) } ?: "X"
+                val pct2 = est2?.let { pctForTipo(estadisticaTipo.value, it) } ?: "X"
+
                 Button(onClick = {
-                    selectedPos.value = SelectedPosTime(p, currentAbsoluteSeconds())
+                    // si estamos en registrar sin tiempo, forzar tiempo 0L
+                    selectedPos.value = SelectedPosTime(pos, if (registrarSinTiempo) 0L else currentAbsoluteSeconds())
                 }, modifier = Modifier.weight(1f)) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = p.abbr)
+                        Text(text = pos.abbr)
                         Spacer(modifier = Modifier.size(4.dp))
-                        Text(text = pctForTipo(estadisticaTipo.value, posEst), style = MaterialTheme.typography.labelSmall)
+                        Text(text = "$pct1 - $pct2", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -482,45 +510,38 @@ private fun PartidoScreen(
 
         val currentSelected = selectedPos.value
         if (currentSelected != null) {
-AccionForm(
-    pos = currentSelected.pos,
-    tiempoSec = currentSelected.tiempoSec,
-    modalidad = modalidad,
-    portero = activePortero.value,
-    isTimerRunning = runningState.value,
-    onSave = { resultadoId, direccionId, porteroId ->
-        val porteroSafe = porteroId ?: 0
-        val tiempoStr = formatTimeHMS(currentSelected.tiempoSec)
-        // obtener accion desde pool para minimizar GC
-        val accion = AccionPool.obtain().apply {
-            portero = porteroSafe
-            tiempo = tiempoStr
-            posicion = currentSelected.pos.id
-            direccion = direccionId
-            resultado = resultadoId
-        }
+            AccionForm(
+                pos = currentSelected.pos,
+                tiempoSec = currentSelected.tiempoSec,
+                modalidad = modalidad,
+                portero = activePortero.value,
+                // si registrarSinTiempo -> tratar como si el temporizador estuviera "activo" para permitir guardar sin diálogo
+                isTimerRunning = registrarSinTiempo || runningState.value,
+                onSave = { resultadoId, direccionId, porteroId ->
+                    val porteroSafe = porteroId ?: 0
+                    val tiempoStr = if (registrarSinTiempo) "00:00:00" else formatTimeHMS(currentSelected.tiempoSec)
+                    val accion = AccionPool.obtain().apply {
+                        portero = porteroSafe
+                        tiempo = tiempoStr
+                        posicion = currentSelected.pos.id
+                        direccion = direccionId
+                        resultado = resultadoId
+                    }
 
-        // Añadir acción al partido
-        partido.addAccion(accion)
+                    partido.addAccion(accion)
+                    EstadisticaStore.recordAccion(currentSelected.pos, accion)
+                    estadisticaManager.recordAccion(porteroId, currentSelected.pos, resultadoId)
 
-        // Registrar estadísticas globales por posición (emitirá cambios vía StateFlow)
-        EstadisticaStore.recordAccion(currentSelected.pos, accion)
-
-        // Registrar en EstadisticaManager (total y, si aplica, por portero)
-        estadisticaManager.recordAccion(porteroId, currentSelected.pos, resultadoId)
-
-        selectedPos.value = null
-    },
-    onCancel = { selectedPos.value = null }
-)
+                    selectedPos.value = null
+                },
+                onCancel = { selectedPos.value = null }
+            )
         }
 
         Spacer(modifier = Modifier.size(16.dp))
 
-        // Botón para comenzar 2º tiempo (solo si acabó 1º y aún no se ha empezado 2º)
-        if (currentSelected == null && timeLimitReached.value && !secondHalfStarted.value && matchDurationSec > 0) {
+        if (currentSelected == null && timeLimitReached.value && !secondHalfStarted.value && matchDurationSec > 0 && !registrarSinTiempo) {
             Button(onClick = {
-                // avanzar offset y reiniciar contador para 2º tiempo
                 secondHalfOffset.value = secondHalfOffset.value + matchDurationSec
                 secondsState.value = 0L
                 secondHalfStarted.value = true
@@ -532,10 +553,8 @@ AccionForm(
             Spacer(modifier = Modifier.size(8.dp))
         }
 
-        // Botón para comenzar Prórroga (si acabó 2º tiempo y aún no se ha iniciado prórroga)
-        if (currentSelected == null && timeLimitReached.value && secondHalfStarted.value && !prorrogaStarted.value && matchDurationSec > 0) {
+        if (currentSelected == null && timeLimitReached.value && secondHalfStarted.value && !prorrogaStarted.value && matchDurationSec > 0 && !registrarSinTiempo) {
             Button(onClick = {
-                // añadir offset de 2º tiempo y comenzar prórroga
                 secondHalfOffset.value = secondHalfOffset.value + matchDurationSec
                 secondsState.value = 0L
                 prorrogaStarted.value = true
@@ -565,44 +584,35 @@ AccionForm(
 
         if (showFinishConfirm.value) {
             AlertDialog(
-                onDismissRequest = { showFinishConfirm.value = false },
+                onDismissRequest = { /* no dismiss */ },
                 title = { Text("Finalizar partido") },
-                text = { Text("¿Deseas finalizar el partido? Si eres VIP se intentará enviar el partido al servidor.") },
+                text = { Text("¿Deseas finalizar el partido y ver el resumen?") },
                 confirmButton = {
                     TextButton(onClick = {
                         showFinishConfirm.value = false
-                        // enviar partido si VIP y luego finalizar
+                        sending.value = true
+
                         scope.launch {
-                            sending.value = true
-                            val ok = try {
+                            try {
                                 PartidoRepository.enviarPartidoSiVip(partido)
                             } catch (_: Throwable) {
-                                false
-                            }
-                            sending.value = false
-                            if (ok) {
-                                // limpiar estado global y terminar
-                                PartidoStore.clear()
-                                EstadisticaStore.clearAll()
-                                // limpiar manager local
-                                estadisticaManager.clear()
-                                (context as? ComponentActivity)?.runOnUiThread {
-                                    Toast.makeText(context, "Partido enviado y finalizado", Toast.LENGTH_SHORT).show()
-                                    onFinalizar()
+                            } finally {
+                                val destIntent = if (SessionManager.getUser()?.vip == true) {
+                                    Intent(context, ResumenActivity::class.java)
+                                } else {
+                                    Intent(context, InicioActivity::class.java)
                                 }
-                            } else {
-                                (context as? ComponentActivity)?.runOnUiThread {
-                                    Toast.makeText(context, "Error al enviar partido", Toast.LENGTH_SHORT).show()
-                                }
+                                context.startActivity(destIntent)
+                                (context as? Activity)?.finish()
                             }
                         }
                     }) {
-                        Text("Sí")
+                        Text("Aceptar")
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showFinishConfirm.value = false }) {
-                        Text("No")
+                        Text("Cancelar")
                     }
                 }
             )
@@ -616,8 +626,6 @@ AccionForm(
                 confirmButton = {
                     TextButton(onClick = {
                         showExitConfirm.value = false
-                        // liberar acciones si no se desean conservar
-                        // no enviamos nada, solo salimos
                         onSalir()
                     }) {
                         Text("Sí")
@@ -648,6 +656,7 @@ private fun AccionForm(
     val defaultDireccionId = Direcciones.ND.id
     val selectedDireccionId = remember { mutableStateOf(defaultDireccionId) }
 
+    // allowedToSave se inicializa con isTimerRunning; si isTimerRunning=true (incluye modo sin tiempo) no se mostrará diálogo
     val allowedToSave = remember { mutableStateOf(isTimerRunning) }
     LaunchedEffect(isTimerRunning) { if (isTimerRunning) allowedToSave.value = true }
 

@@ -59,6 +59,10 @@
             android:name=".PartidoActivity"
             android:label="Partido"
             android:exported="false" />
+        <activity
+            android:name=".ResumenActivity"
+            android:label="Resumen"
+            android:exported="false" />
 
     </application>
 

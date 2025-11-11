@@ -35,7 +35,6 @@ class TiempoActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        title = "Minutos por tiempo"
         setContent {
             App_savemetricTheme {
                 Surface(color = MaterialTheme.colorScheme.background) {
@@ -57,14 +56,18 @@ private fun TiempoScreen(onBack: () -> Unit) {
     val categoria = categoriaRaw.lowercase(Locale.getDefault())
 
     val default = when {
+        categoria.contains("juvenil") -> 30
         categoria.contains("infantil") -> 25
-        categoria.contains("alevin") || categoria.contains("alevín") -> 20
         else -> 30
     }
 
     var value by remember { mutableStateOf(if (savedTiempo >= 0) savedTiempo else default) }
     val min = 0
     val max = 999
+
+    // NUEVO: bandera para registrar sin tiempo
+    val sinTiempoKey = "registrar_sin_tiempo"
+    var sinTiempo by remember { mutableStateOf(prefs.getBoolean(sinTiempoKey, false)) }
 
     Column(
         modifier = Modifier
@@ -79,28 +82,39 @@ private fun TiempoScreen(onBack: () -> Unit) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Button(
-                onClick = { if (value > min) value-- },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                onClick = {
+                    if (value > min) value -= 1
+                },
+                colors = ButtonDefaults.buttonColors()
             ) {
                 Text("-")
             }
 
             Spacer(modifier = Modifier.size(24.dp))
 
-            Text(
-                text = value.toString(),
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(horizontal = 8.dp)
-            )
+            Text(text = "$value min", style = MaterialTheme.typography.titleLarge)
 
             Spacer(modifier = Modifier.size(24.dp))
 
             Button(
-                onClick = { if (value < max) value++ },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                onClick = {
+                    if (value < max) value += 1
+                },
+                colors = ButtonDefaults.buttonColors()
             ) {
                 Text("+")
             }
+        }
+
+        Spacer(modifier = Modifier.size(24.dp))
+
+        // NUEVO: botón para activar/desactivar "Registrar acciones sin tiempo"
+        Button(onClick = {
+            sinTiempo = !sinTiempo
+            prefs.edit().putBoolean(sinTiempoKey, sinTiempo).apply()
+            Toast.makeText(context, if (sinTiempo) "Registro sin tiempo activado" else "Registro con tiempo activado", Toast.LENGTH_SHORT).show()
+        }, modifier = Modifier.fillMaxWidth()) {
+            Text(text = if (sinTiempo) "Registrar acciones sin tiempo: ACTIVADO" else "Registrar acciones sin tiempo: DESACTIVAR")
         }
 
         Spacer(modifier = Modifier.size(24.dp))
@@ -115,17 +129,6 @@ private fun TiempoScreen(onBack: () -> Unit) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Aceptar")
-        }
-
-        Spacer(modifier = Modifier.size(8.dp))
-
-        // Botón Volver: cierra sin guardar (opcional)
-        Button(
-            onClick = { onBack() },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors()
-        ) {
-            Text("Volver")
         }
     }
 }
