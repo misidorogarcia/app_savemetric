@@ -2,23 +2,32 @@ package com.misidoro.app_savemetric.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 object PartidoRepository {
 
+    private val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
     /**
-     * Envía el partido al endpoint /api/partidos usando ApiService si el usuario es VIP.
-     * Devuelve true si el envío fue exitoso o si el usuario no es VIP.
+     * Envía el partido al API sólo si el usuario es VIP.
+     * - Si el usuario no es VIP devuelve false (no intenta el envío).
+     * - Si ocurre cualquier error de red o la respuesta HTTP NO es 200 lanza IOException.
+     * - Si la llamada devuelve 200 retorna true.
      */
     suspend fun enviarPartidoSiVip(partido: Partido): Boolean {
         val user = SessionManager.getUser()
-        if (user?.vip != true) return true // no es VIP -> tratar como éxito
+        if (user?.vip != true) {
+            // No es VIP: no se envía
+            return false
+        }
 
-        val token = user.token ?: return false
+        val token = user.token.ifEmpty { throw IOException("Token de autenticación no disponible") }
+        val authHeader = "Bearer $token"
 
         val fechaStr = try {
-            SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(partido.fecha)
+            if (partido.fecha.time > 0L) dateFmt.format(partido.fecha) else ""
         } catch (_: Throwable) {
             ""
         }
@@ -33,7 +42,7 @@ object PartidoRepository {
             )
         }
 
-        val req = PartidoRequest(
+        val request = PartidoRequest(
             categoria = partido.categoria,
             fecha = fechaStr,
             equipo = partido.equipo,
@@ -41,14 +50,16 @@ object PartidoRepository {
             acciones = accionesReq
         )
 
-        return try {
-            withContext(Dispatchers.IO) {
-                val api = RetrofitProvider.createService(ApiService::class.java)
-                val resp = api.postPartido("Bearer $token", req)
-                resp.isSuccessful
+        return withContext(Dispatchers.IO) {
+            val response = RetrofitClient.api.postPartido(authHeader, request)
+
+            // Considerar fallo cualquier código distinto de 200
+            if (!response.isSuccessful || response.code() !in setOf(200, 201)) {
+                val errorBody = runCatching { response.errorBody()?.string() }.getOrNull()
+                throw IOException("Error enviando partido: HTTP ${response.code()} ${errorBody ?: response.message()}")
             }
-        } catch (_: Throwable) {
-            false
+
+            true
         }
     }
 }

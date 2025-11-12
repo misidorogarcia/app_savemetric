@@ -56,6 +56,7 @@ import android.preference.PreferenceManager
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import com.misidoro.app_savemetric.InicioActivity
 import com.misidoro.app_savemetric.data.MatchCategoriasStore
 
@@ -80,10 +81,12 @@ class ResumenActivity : ComponentActivity() {
             }
         }
 
+        val envioFalladoInit = intent.getBooleanExtra("envio_fallado", false)
+
         setContent {
             App_savemetricTheme {
                 Surface(color = MaterialTheme.colorScheme.background) {
-                    ResumenScreen(estadisticaManager = estadisticaManager, porteros = porteros)
+                    ResumenScreen(estadisticaManager = estadisticaManager, porteros = porteros, envioFalladoInit = envioFalladoInit)
                 }
             }
         }
@@ -91,11 +94,17 @@ class ResumenActivity : ComponentActivity() {
 }
 
 @Composable
-private fun ResumenScreen(estadisticaManager: EstadisticaManager, porteros: List<Portero>) {
+private fun ResumenScreen(estadisticaManager: EstadisticaManager, porteros: List<Portero>, envioFalladoInit: Boolean) {
     val isVip = SessionManager.getUser()?.vip == true
     var tipo by remember { mutableStateOf(if (isVip) EstadisticaTipo.POR_INTERVENCIONES else EstadisticaTipo.EFECTIVA) }
     var selectedPorteroId by remember { mutableStateOf<Int?>(null) } // null = global
     var showPosDetail by remember { mutableStateOf<Posicion?>(null) }
+
+    // bandera recibida desde PartidoActivity: mostrar aviso y botón reintento si true
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var envioFallado by remember { mutableStateOf(envioFalladoInit) }
+    var reenvioEnProgreso by remember { mutableStateOf(false) }
 
     // colores para estados seleccionados/no seleccionados
     val activeColor = Color(0xFF2E7D32)
@@ -110,9 +119,47 @@ private fun ResumenScreen(estadisticaManager: EstadisticaManager, porteros: List
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.CenterHorizontally
+
     ) {
         Spacer(modifier = Modifier.size(6.dp))
+        Spacer(modifier = Modifier.size(16.dp))
 
+        // Si el envío falló, mostrar aviso y botón reintento
+        if (envioFallado) {
+            Spacer(modifier = Modifier.size(8.dp))
+            Column(modifier = Modifier.fillMaxWidth().padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(text = "No se pudo enviar el partido al servidor.", color = Color(0xFFD32F2F))
+                Spacer(modifier = Modifier.size(6.dp))
+                Button(
+                    onClick = {
+                        reenvioEnProgreso = true
+                        scope.launch {
+                            try {
+                                val partido = PartidoStore.getPartido()
+                                if (partido == null) {
+                                    Toast.makeText(context, "No hay partido para enviar", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    PartidoRepository.enviarPartidoSiVip(partido)
+                                    envioFallado = false
+                                    Toast.makeText(context, "Envío correcto", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Throwable) {
+                                Toast.makeText(context, "Error al reenviar: ${e.message ?: "desconocido"}", Toast.LENGTH_LONG).show()
+                            } finally {
+                                reenvioEnProgreso = false
+                            }
+                        }
+                    },
+                    enabled = !reenvioEnProgreso,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (reenvioEnProgreso) "Reintentando..." else "Reintentar envío")
+                }
+            }
+            Spacer(modifier = Modifier.size(12.dp))
+        }
+
+        SalirButton()
         // Selector tipo de estadística (solo visible si VIP)
         if (isVip) {
             Text(text = "Tipo de estadística", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 6.dp))
@@ -238,9 +285,68 @@ private fun ResumenScreen(estadisticaManager: EstadisticaManager, porteros: List
                 }
             )
         }
+
     }
 }
+@Composable
+fun SalirButton() {
+    val context = LocalContext.current
 
+    Button(
+        onClick = {
+            // 0) Limpiar stores en memoria
+            try {
+                MatchPorterosStore.clear()
+            } catch (_: Throwable) { }
+
+            try {
+                // liberar acciones del partido actual si existe
+                PartidoStore.getPartido()?.clearAcciones()
+            } catch (_: Throwable) { }
+
+            try {
+                PartidoStore.clear()
+            } catch (_: Throwable) { }
+
+            try {
+                EstadisticaStore.clearAll()
+            } catch (_: Throwable) { }
+
+            // 1) Borrar SharedPreferences pero mantener la clave "user" si existe
+            try {
+                val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+                val userJson = prefs.getString("user", null)
+                prefs.edit().clear().apply()
+                if (userJson != null) prefs.edit().putString("user", userJson).apply()
+            } catch (_: Throwable) { }
+
+            // 2) Intento seguro de limpiar MatchCategoriasStore vía reflexión si no expone método público
+            runCatching {
+                val cls = Class.forName("com.misidoro.app_savemetric.data.MatchCategoriasStore")
+                val instField = cls.getDeclaredField("INSTANCE")
+                instField.isAccessible = true
+                val instance = instField.get(null)
+                val method = cls.methods.firstOrNull { m ->
+                    val name = m.name.lowercase()
+                    (name.contains("clear") || name.contains("remove") || name.contains("delete")) && m.parameterCount == 0
+                }
+                method?.invoke(instance)
+            }
+
+            // 3) Volver a InicioActivity limpiando la pila
+            val intent = Intent(context, InicioActivity::class.java)
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            context.startActivity(intent)
+
+            // 4) Cerrar Activitys actuales si es posible
+            (context as? ComponentActivity)?.finishAffinity()
+        },
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F), contentColor = Color.White),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Salir")
+    }
+}
 @Composable
 private fun EstadisticaDetalle(estad: Estadistica, tipo: EstadisticaTipo) {
     Column(modifier = Modifier

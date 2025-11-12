@@ -1,5 +1,7 @@
 package com.misidoro.app_savemetric
 
+import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.preference.PreferenceManager
 import android.widget.Toast
@@ -39,9 +41,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
-import android.content.Intent
-import android.app.Activity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.misidoro.app_savemetric.data.Accion
 import com.misidoro.app_savemetric.data.AccionPool
 import com.misidoro.app_savemetric.data.Direcciones
@@ -57,7 +60,6 @@ import com.misidoro.app_savemetric.data.Posicion
 import com.misidoro.app_savemetric.data.Resultado
 import com.misidoro.app_savemetric.data.SessionManager
 import com.misidoro.app_savemetric.ui.theme.App_savemetricTheme
-import com.misidoro.app_savemetric.EstadisticaTipo
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -97,12 +99,15 @@ class PartidoActivity : ComponentActivity() {
         }
         matchDurationSec = if (minutos > 0L) minutos * 60L else -1L
 
+        val isVip = SessionManager.getUser()?.vip == true
+
         setContent {
             App_savemetricTheme {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     PartidoScreen(
                         partido = partido,
                         modalidad = modalidadSession,
+                        isVip = isVip,
                         matchDurationSec = matchDurationSec,
                         onFinalizar = { finish() },
                         onSalir = { finish() }
@@ -325,6 +330,7 @@ private fun formatTimeHMS(seconds: Long): String {
 private fun PartidoScreen(
     partido: Partido,
     modalidad: String,
+    isVip: Boolean,
     matchDurationSec: Long = -1L,
     onFinalizar: () -> Unit,
     onSalir: () -> Unit
@@ -337,13 +343,26 @@ private fun PartidoScreen(
     val prorrogaStarted = remember { mutableStateOf(false) } // nuevo: controla prórroga
     val context = LocalContext.current
 
-    // Leer preferencia "registrar sin tiempo" y mantener en estado
+    // mantener modalidad en un estado local y actualizarlo al volver desde ModalidadActivity
     val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val modalidadState = remember { mutableStateOf(modalidad) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                modalidadState.value = prefs.getString("modalidad", "") ?: ""
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Leer preferencia "registrar sin tiempo" y mantener en estado
     val registrarSinTiempoState = remember { mutableStateOf(prefs.getBoolean("registrar_sin_tiempo", false)) }
     // observar cambios en prefs si TiempoActivity puede cambiarla y volver a esta Activity
     LaunchedEffect(Unit) {
-        // actualización ligera al recomponer/resume
         registrarSinTiempoState.value = prefs.getBoolean("registrar_sin_tiempo", false)
+        if (registrarSinTiempoState.value) runningState.value = false
     }
 
     // Usar EstadisticaManager para gestionar instancias según porteros
@@ -354,8 +373,8 @@ private fun PartidoScreen(
     }
 
     // detectar VIP y elegir valor por defecto / habilitar opciones
-    val isVip = SessionManager.getUser()?.vip == true
-    val estadisticaTipo = remember { mutableStateOf(if (isVip) EstadisticaTipo.POR_INTERVENCIONES else EstadisticaTipo.EFECTIVA) }
+    val isVipLocal = SessionManager.getUser()?.vip == true
+    val estadisticaTipo = remember { mutableStateOf(if (isVipLocal) EstadisticaTipo.POR_INTERVENCIONES else EstadisticaTipo.EFECTIVA) }
 
     val activePortero = remember { mutableStateOf<Portero?>(null) }
     val selectedPos = remember { mutableStateOf<SelectedPosTime?>(null) }
@@ -420,7 +439,7 @@ private fun PartidoScreen(
     }
 
     // nueva bandera: modalidad básica -> solo mostrar ND
-    val isBasico = modalidad.equals("basico", ignoreCase = true)
+    val isBasico = modalidadState.value.equals("basico", ignoreCase = true)
     val registrarSinTiempo = registrarSinTiempoState.value
 
     Column(
@@ -438,6 +457,40 @@ private fun PartidoScreen(
         Text(text = "Fecha: $fechaText", color = MaterialTheme.colorScheme.onBackground)
         Spacer(modifier = Modifier.size(12.dp))
 
+        // Mostrar modalidad y botón para cambiar sólo si es VIP
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(text = "Modalidad: ${modalidadState.value}", color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
+            if (isVip) {
+                Button(onClick = {
+                    val intent = Intent(context, ModalidadActivity::class.java)
+                    context.startActivity(intent)
+                }) {
+                    Text("Cambiar modalidad")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.size(8.dp))
+
+        // Nueva opción: registrar sin tiempo (desactivar temporizador)
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Checkbox(
+                checked = registrarSinTiempoState.value,
+                onCheckedChange = { checked ->
+                    prefs.edit().putBoolean("registrar_sin_tiempo", checked).apply()
+                    registrarSinTiempoState.value = checked
+                    if (checked) {
+                        // Si se desactiva temporizador, detenerlo y reset timeLimit flag
+                        runningState.value = false
+                        timeLimitReached.value = false
+                    }
+                }
+            )
+            Text(text = "Desactivar temporizador (registrar sin tiempo)", color = MaterialTheme.colorScheme.onBackground)
+        }
+
+        Spacer(modifier = Modifier.size(8.dp))
+
         PorterosToggle(
             estadisticaManager = estadisticaManager,
             estadisticaTipo = estadisticaTipo.value
@@ -445,8 +498,8 @@ private fun PartidoScreen(
 
         Spacer(modifier = Modifier.size(8.dp))
 
-        EstadisticaTipoSelector(current = estadisticaTipo.value, isVip = isVip) { seleccionado ->
-            if (isVip) {
+        EstadisticaTipoSelector(current = estadisticaTipo.value, isVip = isVipLocal) { seleccionado ->
+            if (isVipLocal) {
                 estadisticaTipo.value = seleccionado
             } else {
                 estadisticaTipo.value = EstadisticaTipo.EFECTIVA
@@ -513,7 +566,7 @@ private fun PartidoScreen(
             AccionForm(
                 pos = currentSelected.pos,
                 tiempoSec = currentSelected.tiempoSec,
-                modalidad = modalidad,
+                modalidad = modalidadState.value,
                 portero = activePortero.value,
                 // si registrarSinTiempo -> tratar como si el temporizador estuviera "activo" para permitir guardar sin diálogo
                 isTimerRunning = registrarSinTiempo || runningState.value,
@@ -593,12 +646,16 @@ private fun PartidoScreen(
                         sending.value = true
 
                         scope.launch {
+                            var envioFallado = false
                             try {
                                 PartidoRepository.enviarPartidoSiVip(partido)
                             } catch (_: Throwable) {
+                                envioFallado = true
                             } finally {
                                 val destIntent = if (SessionManager.getUser()?.vip == true) {
-                                    Intent(context, ResumenActivity::class.java)
+                                    Intent(context, ResumenActivity::class.java).apply {
+                                        putExtra("envio_fallado", envioFallado)
+                                    }
                                 } else {
                                     Intent(context, InicioActivity::class.java)
                                 }
