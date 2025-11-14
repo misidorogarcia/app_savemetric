@@ -1,6 +1,10 @@
 package com.misidoro.app_savemetric
 
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
+import android.preference.PreferenceManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import com.misidoro.app_savemetric.data.Estadistica
 import com.misidoro.app_savemetric.data.EstadisticaManager
 import com.misidoro.app_savemetric.data.MatchPorterosStore
@@ -51,14 +56,13 @@ import com.misidoro.app_savemetric.data.SessionManager
 import com.misidoro.app_savemetric.ui.theme.App_savemetricTheme
 import com.misidoro.app_savemetric.EstadisticaTipo
 import kotlinx.coroutines.launch
-import android.content.Intent
-import android.preference.PreferenceManager
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
-import androidx.compose.ui.platform.LocalContext
-import android.widget.Toast
-import com.misidoro.app_savemetric.InicioActivity
-import com.misidoro.app_savemetric.data.MatchCategoriasStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import android.widget.Toast.LENGTH_LONG
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
+import com.google.gson.GsonBuilder
 
 class ResumenActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -124,7 +128,7 @@ private fun ResumenScreen(estadisticaManager: EstadisticaManager, porteros: List
         Spacer(modifier = Modifier.size(6.dp))
         Spacer(modifier = Modifier.size(16.dp))
 
-        // Si el envío falló, mostrar aviso y botón reintento
+        // Si el envío falló, mostrar aviso y botones reintento + generar archivo
         if (envioFallado) {
             Spacer(modifier = Modifier.size(8.dp))
             Column(modifier = Modifier.fillMaxWidth().padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -137,14 +141,14 @@ private fun ResumenScreen(estadisticaManager: EstadisticaManager, porteros: List
                             try {
                                 val partido = PartidoStore.getPartido()
                                 if (partido == null) {
-                                    Toast.makeText(context, "No hay partido para enviar", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "No hay partido para enviar", LENGTH_LONG).show()
                                 } else {
                                     PartidoRepository.enviarPartidoSiVip(partido)
                                     envioFallado = false
-                                    Toast.makeText(context, "Envío correcto", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Envío correcto", LENGTH_LONG).show()
                                 }
                             } catch (e: Throwable) {
-                                Toast.makeText(context, "Error al reenviar: ${e.message ?: "desconocido"}", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Error al reenviar: ${e.message ?: "desconocido"}", LENGTH_LONG).show()
                             } finally {
                                 reenvioEnProgreso = false
                             }
@@ -154,6 +158,35 @@ private fun ResumenScreen(estadisticaManager: EstadisticaManager, porteros: List
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (reenvioEnProgreso) "Reintentando..." else "Reintentar envío")
+                }
+
+                Spacer(modifier = Modifier.size(8.dp))
+
+                // Nuevo botón: Generar archivo JSON con timestamp del usuario
+                Button(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                val partido = PartidoStore.getPartido()
+                                if (partido == null) {
+                                    Toast.makeText(context, "No hay partido para exportar", LENGTH_LONG).show()
+                                    return@launch
+                                }
+                                val userTimestamp = SessionManager.getUser()?.timestamp
+                                val path = generatePartidoJsonFile(context, partido, userTimestamp)
+                                if (path != null) {
+                                    Toast.makeText(context, "Archivo generado: $path", LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Error generando archivo", LENGTH_LONG).show()
+                                }
+                            } catch (e: Throwable) {
+                                Toast.makeText(context, "Error: ${e.message ?: "desconocido"}", LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Generar archivo")
                 }
             }
             Spacer(modifier = Modifier.size(12.dp))
@@ -485,10 +518,71 @@ private fun AccionRow(index: Int, accion: Accion) {
         }
     }
 }
-// helper para acceder a un Context dentro de composable cuando se necesita (toast, startActivity)
-// mantenemos una implementación ligera que usa PreferenceManager para devolver contexto actual
-// (no necesita permisos ni inicialización especial)
-object LocalContextProvider {
-    // se asume que hay al menos una Activity en la pila; usamos PreferenceManager para obtener contexto applicationContext
-    private val currentContext by lazy { this }
+
+// --- helpers para generar el JSON y escribir fichero ---
+private suspend fun generatePartidoJsonFile(context: Context, partido: Partido, userTimestamp: Long?): String? {
+    return withContext(Dispatchers.IO) {
+        try {
+            val gson = GsonBuilder().setPrettyPrinting().create()
+            val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val fechaStr = if (partido.fecha.time > 0L) dateFmt.format(partido.fecha) else ""
+
+            // construir objeto JSON
+            val data = mutableMapOf<String, Any?>(
+                "categoria" to partido.categoria,
+                "fecha" to fechaStr,
+                "equipo" to partido.equipo,
+                "rival" to partido.rival,
+                "clave" to (SessionManager.getUser()?.clave ?: "")
+            )
+            if (userTimestamp != null) data["timestamp"] = userTimestamp
+
+            val acciones = partido.acciones.map { a ->
+                mapOf(
+                    "portero" to a.portero,
+                    "tiempo" to a.tiempo,
+                    "posicion" to a.posicion,
+                    "direccion" to a.direccion,
+                    "resultado" to a.resultado
+                )
+            }
+            data["acciones"] = acciones
+
+            // nombre de fichero sanitizado
+            val baseName = sanitizeFilename("${partido.equipo}_${partido.rival}")
+            val fileName = "$baseName.json"
+
+            // intentar carpeta pública Documents
+            val docsDir = try {
+                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS)
+            } catch (_: Throwable) {
+                null
+            }
+
+            val targetDir = when {
+                docsDir != null -> docsDir
+                else -> context.filesDir
+            }
+
+            if (!targetDir.exists()) targetDir.mkdirs()
+            val file = File(targetDir, fileName)
+            file.writeText(gson.toJson(data), Charsets.UTF_8)
+
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Archivo guardado: ${file.absolutePath}", Toast.LENGTH_LONG).show()
+            }
+            file.absolutePath
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Error guardando archivo: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+            null
+        }
+    }
+}
+
+private fun sanitizeFilename(name: String): String {
+    // sustituir caracteres inválidos por guión bajo y acortar si es muy largo
+    val replaced = name.replace(Regex("[^A-Za-z0-9_.-]"), "_")
+    return if (replaced.length > 120) replaced.take(120) else replaced
 }

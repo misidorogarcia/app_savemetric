@@ -10,20 +10,14 @@ object PartidoRepository {
 
     private val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
-    /**
-     * Envía el partido al API sólo si el usuario es VIP.
-     * - Si el usuario no es VIP devuelve false (no intenta el envío).
-     * - Si ocurre cualquier error de red o la respuesta HTTP NO es 200 lanza IOException.
-     * - Si la llamada devuelve 200 retorna true.
-     */
     suspend fun enviarPartidoSiVip(partido: Partido): Boolean {
         val user = SessionManager.getUser()
         if (user?.vip != true) {
-            // No es VIP: no se envía
             return false
         }
 
         val token = user.token.ifEmpty { throw IOException("Token de autenticación no disponible") }
+        val clave = user.clave?.takeIf { it.isNotBlank() } ?: throw IOException("Clave de usuario no disponible")
         val authHeader = "Bearer $token"
 
         val fechaStr = try {
@@ -47,13 +41,13 @@ object PartidoRepository {
             fecha = fechaStr,
             equipo = partido.equipo,
             rival = partido.rival,
+            clave = clave,
             acciones = accionesReq
         )
 
         return withContext(Dispatchers.IO) {
             val response = RetrofitClient.api.postPartido(authHeader, request)
 
-            // Considerar fallo cualquier código distinto de 200
             if (!response.isSuccessful || response.code() !in setOf(200, 201)) {
                 val errorBody = runCatching { response.errorBody()?.string() }.getOrNull()
                 throw IOException("Error enviando partido: HTTP ${response.code()} ${errorBody ?: response.message()}")

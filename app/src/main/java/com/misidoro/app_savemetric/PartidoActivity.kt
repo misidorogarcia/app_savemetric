@@ -1,7 +1,5 @@
 package com.misidoro.app_savemetric
 
-import android.app.Activity
-import android.content.Intent
 import android.os.Bundle
 import android.preference.PreferenceManager
 import android.widget.Toast
@@ -43,6 +41,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.app.Activity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.misidoro.app_savemetric.data.Accion
@@ -60,6 +60,7 @@ import com.misidoro.app_savemetric.data.Posicion
 import com.misidoro.app_savemetric.data.Resultado
 import com.misidoro.app_savemetric.data.SessionManager
 import com.misidoro.app_savemetric.ui.theme.App_savemetricTheme
+import com.misidoro.app_savemetric.EstadisticaTipo
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -646,16 +647,12 @@ private fun PartidoScreen(
                         sending.value = true
 
                         scope.launch {
-                            var envioFallado = false
                             try {
                                 PartidoRepository.enviarPartidoSiVip(partido)
                             } catch (_: Throwable) {
-                                envioFallado = true
                             } finally {
                                 val destIntent = if (SessionManager.getUser()?.vip == true) {
-                                    Intent(context, ResumenActivity::class.java).apply {
-                                        putExtra("envio_fallado", envioFallado)
-                                    }
+                                    Intent(context, ResumenActivity::class.java)
                                 } else {
                                     Intent(context, InicioActivity::class.java)
                                 }

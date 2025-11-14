@@ -1,3 +1,4 @@
+// kotlin
 package com.misidoro.app_savemetric.data
 
 object SessionManager {
@@ -27,10 +28,11 @@ object SessionManager {
             apellidos = apiUser.apellidos,
             email = apiUser.email,
             token = token,
-            vip = resp.vip ?: false
+            vip = resp.vip ?: false,
+            timestamp = resp.timestamp,
+            clave = resp.clave
         )
         saveUser(user)
         return user
     }
 }
-

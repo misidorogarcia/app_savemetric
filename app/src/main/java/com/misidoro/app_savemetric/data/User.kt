@@ -6,6 +6,8 @@ data class User(
     val apellidos: String?,
     val email: String,
     val token: String,
-    val vip: Boolean
+    val vip: Boolean,
+    val timestamp: Long? = null,
+    val clave: String? = null
 )
 

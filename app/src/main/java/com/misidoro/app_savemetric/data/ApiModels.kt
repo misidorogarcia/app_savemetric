@@ -1,3 +1,4 @@
+// kotlin
 package com.misidoro.app_savemetric.data
 
 import com.google.gson.annotations.SerializedName as GsonSerializedName
@@ -18,7 +19,9 @@ data class LoginResponse(
     val message: String?,
     val user: ApiUser?,
     val token: String?,
-    val vip: Boolean?
+    val vip: Boolean?,
+    val timestamp: Long?,
+    val clave: String?
 )
 
 data class AccionRequest(
@@ -34,5 +37,6 @@ data class PartidoRequest(
     @GsonSerializedName("fecha") val fecha: String, // "yyyy-MM-dd"
     @GsonSerializedName("equipo") val equipo: String,
     @GsonSerializedName("rival") val rival: String,
+    @GsonSerializedName("clave") val clave: String,
     @GsonSerializedName("acciones") val acciones: List<AccionRequest>
 )
