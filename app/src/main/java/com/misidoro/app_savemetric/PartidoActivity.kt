@@ -1,5 +1,6 @@
 package com.misidoro.app_savemetric
 
+
 import android.os.Bundle
 import android.preference.PreferenceManager
 import android.widget.Toast
@@ -43,6 +44,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import android.content.Intent
 import android.app.Activity
+import androidx.compose.foundation.layout.Box
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.misidoro.app_savemetric.data.Accion
@@ -67,6 +69,29 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import kotlin.collections.get
+import androidx.compose.ui.window.Dialog
+import kotlin.compareTo
+import kotlin.div
+
 
 data class SelectedPosTime(val pos: Posicion, val tiempoSec: Long)
 
@@ -104,15 +129,27 @@ class PartidoActivity : ComponentActivity() {
 
         setContent {
             App_savemetricTheme {
-                Surface(color = MaterialTheme.colorScheme.background) {
-                    PartidoScreen(
-                        partido = partido,
-                        modalidad = modalidadSession,
-                        isVip = isVip,
-                        matchDurationSec = matchDurationSec,
-                        onFinalizar = { finish() },
-                        onSalir = { finish() }
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Image(
+                        painter = painterResource(id = R.drawable.est_partido),
+                        contentDescription = null,
+                        modifier = Modifier.matchParentSize(),
+                        contentScale = ContentScale.Crop
                     )
+
+                    Surface(
+                        color = Color.Transparent,
+                        modifier = Modifier.matchParentSize()
+                    ) {
+                        PartidoScreen(
+                            partido = partido,
+                            modalidad = modalidadSession,
+                            isVip = isVip,
+                            matchDurationSec = matchDurationSec,
+                            onFinalizar = { finish() },
+                            onSalir = { finish() }
+                        )
+                    }
                 }
             }
         }
@@ -127,15 +164,18 @@ class PartidoActivity : ComponentActivity() {
     }
 }
 
+
+/***
+ * sección para seleccionar portero activo
+ * se llama en partidoscreen, pero el control de estado se hace aqui
+ */
 @Composable
 private fun PorterosToggle(
     estadisticaManager: EstadisticaManager,
     estadisticaTipo: EstadisticaTipo,
     onActiveChanged: (Portero?) -> Unit = {}
 ) {
-    // leer versión para forzar recomposición cuando cambie EstadisticaStore
     val statsVersion by EstadisticaStore.version.collectAsState()
-
     val porterosState = remember { mutableStateOf<List<Portero>>(emptyList()) }
     val activeIndex = remember { mutableStateOf(0) }
 
@@ -161,26 +201,37 @@ private fun PorterosToggle(
     fun pctForPortero(tipo: EstadisticaTipo, e: Estadistica?): String {
         if (e == null) return "X"
         return when (tipo) {
-            EstadisticaTipo.POR_INTERVENCIONES -> fmtPct(e.paradasTotales + e.noGolesTotales, e.accionesTotales)
+            EstadisticaTipo.POR_INTERVENCIONES -> fmtPct(
+                e.paradasTotales + e.noGolesTotales,
+                e.accionesTotales
+            )
+
             EstadisticaTipo.REAL -> fmtPct(e.paradasTotales, e.accionesReales)
             EstadisticaTipo.EFECTIVA -> fmtPct(e.paradasValidas, e.accionesEfectivas)
         }
     }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // botones en una misma fila y ocupando todo el ancho
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             for (i in 0 until showCount) {
                 val p = porteros[i]
                 val isActive = activeIndex.value == i
-                // obtener estadística del manager; si es null, usar objeto vacío para evitar NPE
                 val estad = estadisticaManager.getForPortero(p.id) ?: Estadistica()
-                // referenciar statsVersion aquí para asegurar que la recomposición utiliza la última versión
+
+                @Suppress("UNUSED_VARIABLE")
                 val pctText = run {
-                    @Suppress("UNUSED_VARIABLE")
                     val v = statsVersion
                     pctForPortero(estadisticaTipo, estad)
                 }
-
                 val bgColor = if (isActive) Color(0xFF2E7D32) else Color(0xFFD32F2F)
                 Button(
                     onClick = {
@@ -194,23 +245,40 @@ private fun PorterosToggle(
                 }
             }
             if (showCount == 1) {
-                Spacer(modifier = Modifier.fillMaxWidth(0.5f))
+                Spacer(modifier = Modifier.size(0.dp))
             }
         }
     }
 }
 
+
+/***
+ * Controlador de los botones de estadistica
+ * se llama en partidoscreen, pero el control de estado se hace aqui
+ */
 @Composable
 private fun EstadisticaTipoSelector(
     current: EstadisticaTipo,
     isVip: Boolean,
     onSelect: (EstadisticaTipo) -> Unit
 ) {
-    val activeColor = Color(0xFF2E7D32)     // color activo (verde)
-    val inactiveColor = Color(0xFFBDBDBD)   // color no activo (gris)
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = "Tipo de estadística", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 6.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    val activeColor = Color(0xFF2E7D32)
+    val inactiveColor = Color(0xFFBDBDBD)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Tipo de estadística",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Button(
                 onClick = { if (isVip) onSelect(EstadisticaTipo.POR_INTERVENCIONES) },
                 enabled = isVip,
@@ -241,6 +309,10 @@ private fun EstadisticaTipoSelector(
     }
 }
 
+/***
+ * Panel de estadísticas según el tipo seleccionado
+ * Se llama en partidoscreen pero se controla aqui
+ */
 @Composable
 fun EstadisticaPanel(tipo: EstadisticaTipo) {
     val s by EstadisticaStore.global.collectAsState()
@@ -248,72 +320,111 @@ fun EstadisticaPanel(tipo: EstadisticaTipo) {
     fun pct(numerador: Int, denominador: Int): String {
         if (denominador <= 0) return "0%"
         val p = (numerador.toDouble() * 100.0) / denominador.toDouble()
-        val texto = if (p % 1.0 == 0.0) String.format("%d%%", p.toInt()) else String.format("%.1f%%", p)
+        val texto =
+            if (p % 1.0 == 0.0) String.format("%d%%", p.toInt()) else String.format("%.1f%%", p)
         return texto
     }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Text(text = "Estadística", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 6.dp))
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
 
-        when (tipo) {
-            EstadisticaTipo.POR_INTERVENCIONES -> {
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total lanzamientos")
-                    Text("${s.accionesTotales}")
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Goles recibidos")
-                    Text("${s.goles}")
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total Paradas")
-                    Text("${s.paradasTotales}")
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Errores provocados")
-                    Text("${s.noGolesTotales}")
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("%Intervenciones")
-                    Text(pct(s.paradasTotales + s.noGolesTotales, s.accionesTotales))
+        val entries: List<Pair<String, String>> = when (tipo) {
+            EstadisticaTipo.POR_INTERVENCIONES -> listOf(
+                "Total lanzamientos" to "${s.accionesTotales}",
+                "Goles recibidos" to "${s.goles}",
+                "Total Paradas" to "${s.paradasTotales}",
+                "Errores provocados" to "${s.noGolesTotales}",
+                "%Intervenciones" to pct(s.paradasTotales + s.noGolesTotales, s.accionesTotales)
+            )
+
+            EstadisticaTipo.REAL -> listOf(
+                "Total lanzamientos a puerta" to "${s.accionesReales}",
+                "Goles recibidos" to "${s.goles}",
+                "Total intervenciones reales" to "${s.paradasTotales}",
+                "%real" to pct(s.paradasTotales, s.accionesReales)
+            )
+
+            EstadisticaTipo.EFECTIVA -> listOf(
+                "Total lanzamientos a puerta válidos" to "${s.accionesEfectivas}",
+                "Goles recibidos" to "${s.goles}",
+                "Total intervenciones reales" to "${s.paradasValidas}",
+                "%efectivo" to pct(s.paradasValidas, s.accionesEfectivas)
+            )
+        }
+
+        // Encabezados (primera fila)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            for ((idx, pair) in entries.withIndex()) {
+                val (header, _) = pair
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(4.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(
+                            BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
+                            ),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .background(
+                            if (idx % 2 == 0)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.04f)
+                        )
+                        .padding(vertical = 10.dp, horizontal = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = header,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1
+                    )
                 }
             }
+        }
 
-            EstadisticaTipo.REAL -> {
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total lanzamientos a puerta")
-                    Text("${s.accionesReales}")
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Goles recibidos")
-                    Text("${s.goles}")
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total intervenciones reales")
-                    Text("${s.paradasTotales}")
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("%real")
-                    Text(pct(s.paradasTotales, s.accionesReales))
-                }
-            }
-
-            EstadisticaTipo.EFECTIVA -> {
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total lanzamientos a puerta válidos")
-                    Text("${s.accionesEfectivas}")
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Goles recibidos")
-                    Text("${s.goles}")
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total intervenciones reales")
-                    Text("${s.paradasValidas}")
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("%efectivo")
-                    Text(pct(s.paradasValidas, s.accionesEfectivas))
+        // Valores (segunda fila)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            for ((idx, pair) in entries.withIndex()) {
+                val (_, value) = pair
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(4.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(
+                            BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                            ),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                        .padding(vertical = 12.dp, horizontal = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = value,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
                 }
             }
         }
@@ -327,6 +438,210 @@ private fun formatTimeHMS(seconds: Long): String {
     return String.format(Locale.getDefault(), "%02d:%02d:%02d", h, m, s)
 }
 
+/***
+ * Listado de botones para seleccionar posición.
+ * Se llama en partidoscreen, pero el control del los botones se hace aquí.
+ */
+
+@Composable
+fun PosicionesGrid(
+    onSelectPos: (Posicion) -> Unit,
+    isBasico: Boolean,
+    registrarSinTiempo: Boolean,
+    currentTimeSec: Long,
+    estadisticaManager: EstadisticaManager,
+    estadisticaTipo: EstadisticaTipo
+) {
+    // mantiene la dependencia para forzar recomposición global si hace falta
+    val statsVersion by EstadisticaStore.version.collectAsState()
+    val porteros = MatchPorterosStore.getPorteros()
+
+    // mapa de (fila,col) 1-based -> lista de abreviaturas
+    val placements = mutableMapOf<Pair<Int, Int>, MutableList<String>>().apply {
+        put(1 to 1, mutableListOf("EIC"))
+        put(2 to 2, mutableListOf("EIA"))
+        put(3 to 3, mutableListOf("LI"))
+        put(3 to 5, mutableListOf("LD"))
+        put(2 to 6, mutableListOf("EDA"))
+        put(1 to 7, mutableListOf("EDC"))
+        put(3 to 4, mutableListOf("6M", "7M"))
+        put(4 to 3, mutableListOf("9M"))
+        put(4 to 4, mutableListOf("9M", "CA"))
+        put(4 to 5, mutableListOf("9M"))
+        put(2 to 4, mutableListOf("ND"))
+    }
+
+    fun fmtPct(n: Int, d: Int): String {
+        if (d <= 0) return "X"
+        val p = (n.toDouble() * 100.0) / d.toDouble()
+        return if (p % 1.0 == 0.0) String.format("%d%%", p.toInt()) else String.format("%.1f%%", p)
+    }
+
+    fun pctForStat(tipo: EstadisticaTipo, e: Estadistica?): String {
+        if (e == null) return "X"
+        return when (tipo) {
+            EstadisticaTipo.POR_INTERVENCIONES -> fmtPct(
+                e.paradasTotales + e.noGolesTotales,
+                e.accionesTotales
+            )
+
+            EstadisticaTipo.REAL -> fmtPct(e.paradasTotales, e.accionesReales)
+            EstadisticaTipo.EFECTIVA -> fmtPct(e.paradasValidas, e.accionesEfectivas)
+        }
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .border(
+                BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)),
+                RoundedCornerShape(12.dp)
+            )
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+            .padding(12.dp)
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.pista3),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(12.dp))
+        )
+        val cellSize = maxWidth / 7f
+
+        Column(modifier = Modifier.fillMaxWidth()) {
+            for (r in 1..4) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    for (c in 1..7) {
+                        val labels = placements[r to c] ?: emptyList()
+                        val visibleLabels = if (isBasico) labels.filter { it == "ND" } else labels
+
+                        Box(
+                            modifier = Modifier
+                                .width(cellSize)
+                                .height(cellSize)
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(
+                                    BorderStroke(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                                    ), RoundedCornerShape(6.dp)
+                                )
+                                .padding(4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (visibleLabels.isEmpty()) {
+                                Spacer(modifier = Modifier.size(0.dp))
+                            } else {
+                                Column(
+                                    modifier = Modifier
+                                        .wrapContentWidth()
+                                        .wrapContentHeight(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    for (label in visibleLabels) {
+                                        val pos = Posicion.values().firstOrNull { it.abbr == label }
+                                        if (pos == null) {
+                                            Text(
+                                                text = label,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        } else {
+                                            // ahora usamos el StateFlow por posición para recibir actualizaciones
+                                            val posFlow = EstadisticaStore.getForPositionFlow(pos)
+                                            val posStat by posFlow.collectAsState()
+
+                                            val totalPct = pctForStat(estadisticaTipo, posStat)
+
+                                            val porteroPctText = if (porteros.size > 1) {
+                                                // construir porcentajes por portero (abreviado)
+                                                porteros.joinToString(" ") { p ->
+                                                    val pst =
+                                                        estadisticaManager.getForPorteroAndPos(
+                                                            p.id,
+                                                            pos
+                                                        ) ?: Estadistica()
+                                                    val nameShort =
+                                                        p.nombre?.split(" ")?.firstOrNull()
+                                                            .orEmpty()
+                                                    "$nameShort:${pctForStat(estadisticaTipo, pst)}"
+                                                }
+                                            } else {
+                                                ""
+                                            }
+
+                                            Button(
+                                                onClick = { onSelectPos(pos) },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    Text(text = pos.abbr)
+                                                    Text(
+                                                        text = totalPct,
+                                                        style = MaterialTheme.typography.titleMedium
+                                                    )
+
+                                                    if (porteros.size > 1) {
+                                                        val p0 =
+                                                            estadisticaManager.getForPorteroAndPos(
+                                                                porteros[0].id,
+                                                                pos
+                                                            ) ?: Estadistica()
+                                                        val p1 =
+                                                            estadisticaManager.getForPorteroAndPos(
+                                                                porteros[1].id,
+                                                                pos
+                                                            ) ?: Estadistica()
+                                                        val pct0 = pctForStat(estadisticaTipo, p0)
+                                                        val pct1 = pctForStat(estadisticaTipo, p1)
+
+                                                        Row(
+                                                            horizontalArrangement = Arrangement.Center,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = pct0,
+                                                                style = MaterialTheme.typography.bodySmall.copy(
+                                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                                                ),
+                                                                color = Color(0xFF2E7D32)
+                                                            )
+                                                            Spacer(modifier = Modifier.size(6.dp))
+                                                            Text(
+                                                                text = "|",
+                                                                style = MaterialTheme.typography.bodySmall
+                                                            )
+                                                            Spacer(modifier = Modifier.size(6.dp))
+                                                            Text(
+                                                                text = pct1,
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = MaterialTheme.colorScheme.onBackground
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.size(4.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.size(6.dp))
+            }
+        }
+    }
+}
+
 @Composable
 private fun PartidoScreen(
     partido: Partido,
@@ -336,15 +651,14 @@ private fun PartidoScreen(
     onFinalizar: () -> Unit,
     onSalir: () -> Unit
 ) {
-    val secondsState = remember { mutableStateOf(0L) } // segundos dentro de la mitad actual
+    val secondsState = remember { mutableStateOf(0L) }
     val runningState = remember { mutableStateOf(false) }
-    val timeLimitReached = remember { mutableStateOf(false) } // indica que se alcanzó el límite de la mitad
-    val secondHalfOffset = remember { mutableStateOf(0L) } // tiempo acumulado de mitades anteriores
+    val timeLimitReached = remember { mutableStateOf(false) }
+    val secondHalfOffset = remember { mutableStateOf(0L) }
     val secondHalfStarted = remember { mutableStateOf(false) }
-    val prorrogaStarted = remember { mutableStateOf(false) } // nuevo: controla prórroga
+    val prorrogaStarted = remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // mantener modalidad en un estado local y actualizarlo al volver desde ModalidadActivity
     val prefs = PreferenceManager.getDefaultSharedPreferences(context)
     val lifecycleOwner = LocalLifecycleOwner.current
     val modalidadState = remember { mutableStateOf(modalidad) }
@@ -358,24 +672,22 @@ private fun PartidoScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Leer preferencia "registrar sin tiempo" y mantener en estado
-    val registrarSinTiempoState = remember { mutableStateOf(prefs.getBoolean("registrar_sin_tiempo", false)) }
-    // observar cambios en prefs si TiempoActivity puede cambiarla y volver a esta Activity
+    val registrarSinTiempoState =
+        remember { mutableStateOf(prefs.getBoolean("registrar_sin_tiempo", false)) }
     LaunchedEffect(Unit) {
         registrarSinTiempoState.value = prefs.getBoolean("registrar_sin_tiempo", false)
         if (registrarSinTiempoState.value) runningState.value = false
     }
 
-    // Usar EstadisticaManager para gestionar instancias según porteros
     val estadisticaManager = remember {
         EstadisticaManager().apply {
             initForPorteros(MatchPorterosStore.getPorteros())
         }
     }
 
-    // detectar VIP y elegir valor por defecto / habilitar opciones
     val isVipLocal = SessionManager.getUser()?.vip == true
-    val estadisticaTipo = remember { mutableStateOf(if (isVipLocal) EstadisticaTipo.POR_INTERVENCIONES else EstadisticaTipo.EFECTIVA) }
+    val estadisticaTipo =
+        remember { mutableStateOf(if (isVipLocal) EstadisticaTipo.POR_INTERVENCIONES else EstadisticaTipo.EFECTIVA) }
 
     val activePortero = remember { mutableStateOf<Portero?>(null) }
     val selectedPos = remember { mutableStateOf<SelectedPosTime?>(null) }
@@ -386,10 +698,8 @@ private fun PartidoScreen(
 
     val scope = rememberCoroutineScope()
 
-    // Tiempo absoluto usado para almacenar acciones
     fun currentAbsoluteSeconds(): Long = secondHalfOffset.value + secondsState.value
 
-    // Temporizador robusto: cap y parada fiable cuando alcanza matchDurationSec (>0)
     LaunchedEffect(runningState.value, matchDurationSec) {
         if (!runningState.value) return@LaunchedEffect
         while (isActive && runningState.value) {
@@ -419,29 +729,38 @@ private fun PartidoScreen(
         secondHalfStarted.value -> " (2º tiempo)"
         else -> " (1º tiempo)"
     }
-    val timerColor = if (timeLimitReached.value) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onBackground
-    val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+    val timerColor =
+        if (timeLimitReached.value) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onBackground
+    val sdf = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault())
     val fechaText = if (partido.fecha.time > 0L) sdf.format(partido.fecha) else "Sin fecha"
 
-    // OBS: observamos la estadística global para forzar recomposición cuando cambien estadísticas.
     val globalStat by EstadisticaStore.global.collectAsState()
 
     fun pctForTipo(tipo: EstadisticaTipo, e: Estadistica): String {
         fun fmt(numerador: Int, denominador: Int): String {
             if (denominador <= 0) return "X"
             val p = (numerador.toDouble() * 100.0) / denominador.toDouble()
-            return if (p % 1.0 == 0.0) String.format("%d%%", p.toInt()) else String.format("%.1f%%", p)
+            return if (p % 1.0 == 0.0) String.format("%d%%", p.toInt()) else String.format(
+                "%.1f%%",
+                p
+            )
         }
         return when (tipo) {
-            EstadisticaTipo.POR_INTERVENCIONES -> fmt(e.paradasTotales + e.noGolesTotales, e.accionesTotales)
+            EstadisticaTipo.POR_INTERVENCIONES -> fmt(
+                e.paradasTotales + e.noGolesTotales,
+                e.accionesTotales
+            )
+
             EstadisticaTipo.REAL -> fmt(e.paradasTotales, e.accionesReales)
             EstadisticaTipo.EFECTIVA -> fmt(e.paradasValidas, e.accionesEfectivas)
         }
     }
 
-    // nueva bandera: modalidad básica -> solo mostrar ND
     val isBasico = modalidadState.value.equals("basico", ignoreCase = true)
     val registrarSinTiempo = registrarSinTiempoState.value
+
+    // Estado para mostrar/ocultar la cabecera
+    val showHeader = remember { mutableStateOf(true) }
 
     Column(
         modifier = Modifier
@@ -451,149 +770,500 @@ private fun PartidoScreen(
         verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(text = "Categoría: ${partido.categoria}", color = MaterialTheme.colorScheme.onBackground)
-        Spacer(modifier = Modifier.size(8.dp))
-        Text(text = "Equipo: ${partido.equipo}  —  Rival: ${partido.rival}", color = MaterialTheme.colorScheme.onBackground)
-        Spacer(modifier = Modifier.size(8.dp))
-        Text(text = "Fecha: $fechaText", color = MaterialTheme.colorScheme.onBackground)
-        Spacer(modifier = Modifier.size(12.dp))
+        // Cuando la cabecera está oculta mostramos un botón pequeño para recuperarla
+        if (!showHeader.value) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Button(
+                    onClick = { showHeader.value = true },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = Color.White
+                    ),
+                    modifier = Modifier
+                        .height(36.dp)
+                ) {
+                    Text("Mostrar cabecera")
+                }
+            }
+        }
+        // --- CABECERA (condicional) ---
+        if (showHeader.value) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    // Columna izquierda
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(
+                                BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                                ),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                            .padding(12.dp)
+                    )  {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            // Encabezado de la "tabla"
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                val headers = listOf("Fecha", "Categoría", "Equipo", "Rival")
+                                for ((idx, h) in headers.withIndex()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .border(
+                                                BorderStroke(
+                                                    1.dp,
+                                                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                                                ),
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .background(
+                                                if (idx % 2 == 0)
+                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
+                                                else
+                                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.04f)
+                                            )
+                                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = h,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
 
-        // Mostrar modalidad y botón para cambiar sólo si es VIP
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(text = "Modalidad: ${modalidadState.value}", color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
-            if (isVip) {
-                Button(onClick = {
-                    val intent = Intent(context, ModalidadActivity::class.java)
-                    context.startActivity(intent)
-                }) {
-                    Text("Cambiar modalidad")
+                            // Fila de valores correspondiente (misma orden que encabezados)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                val values = listOf(
+                                    fechaText,
+                                    partido.categoria ?: "",
+                                    partido.equipo ?: "",
+                                    partido.rival ?: ""
+                                )
+                                for (v in values) {
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .border(
+                                                BorderStroke(
+                                                    1.dp,
+                                                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                                                ),
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                                            .padding(vertical = 12.dp, horizontal = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = v,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.onBackground,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.size(8.dp))
+
+                    // Columna derecha
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(
+                                BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                                ),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                            .padding(12.dp)
+                    ) {
+                        Row(modifier = Modifier.fillMaxHeight()) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .border(
+                                        BorderStroke(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                                        ),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Button(
+                                        onClick = { runningState.value = !runningState.value },
+                                        enabled = !registrarSinTiempoState.value,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (runningState.value) Color(
+                                                0xFF2E7D32
+                                            ) else MaterialTheme.colorScheme.primary
+                                        )
+                                    ) {
+                                        Text(if (runningState.value) "Pausar" else "Iniciar")
+                                    }
+
+                                    Spacer(modifier = Modifier.size(8.dp))
+
+                                    Button(
+                                        onClick = {
+                                            val newVal = !registrarSinTiempoState.value
+                                            prefs.edit().putBoolean("registrar_sin_tiempo", newVal)
+                                                .apply()
+                                            registrarSinTiempoState.value = newVal
+                                            if (newVal) {
+                                                runningState.value = false
+                                                timeLimitReached.value = false
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (registrarSinTiempoState.value) Color(
+                                                0xFFD32F2F
+                                            ) else Color(0xFF4CAF50),
+                                            contentColor = Color.White
+                                        )
+                                    ) {
+                                        Text(if (registrarSinTiempoState.value) "Temporizador OFF" else "Temporizador ON")
+                                    }
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .border(
+                                        BorderStroke(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                                        ),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = timerText + (if (matchDurationSec > 0) halfLabel else ""),
+                                        color = timerColor
+                                    )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .border(
+                                        BorderStroke(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                                        ),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = "Modalidad: ${modalidadState.value}",
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+                                    if (isVipLocal) {
+                                        Spacer(modifier = Modifier.size(6.dp))
+                                        Button(onClick = {
+                                            val intent =
+                                                Intent(context, ModalidadActivity::class.java)
+                                            context.startActivity(intent)
+                                        }) {
+                                            Text("Cambiar")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Botón para ocultar la cabecera, alineado arriba a la derecha del Box
+                Box(modifier = Modifier.matchParentSize()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(end = 8.dp, top = 4.dp)
+                    ) {
+                        Button(
+                            onClick = { showHeader.value = false },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondary,
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Text("Ocultar cabecera")
+                        }
+                    }
                 }
             }
         }
 
         Spacer(modifier = Modifier.size(8.dp))
 
-        // Nueva opción: registrar sin tiempo (desactivar temporizador)
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Checkbox(
-                checked = registrarSinTiempoState.value,
-                onCheckedChange = { checked ->
-                    prefs.edit().putBoolean("registrar_sin_tiempo", checked).apply()
-                    registrarSinTiempoState.value = checked
-                    if (checked) {
-                        // Si se desactiva temporizador, detenerlo y reset timeLimit flag
-                        runningState.value = false
-                        timeLimitReached.value = false
+        //SEGUNDA SECCIÓN:  ESTADÍSTICAS
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .border(
+                    BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                    ), RoundedCornerShape(12.dp)
+                )
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                .padding(12.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(
+                            BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                            ), RoundedCornerShape(8.dp)
+                        )
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                        .padding(8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        EstadisticaTipoSelector(
+                            current = estadisticaTipo.value,
+                            isVip = isVipLocal
+                        ) { seleccionado ->
+                            if (isVipLocal) {
+                                estadisticaTipo.value = seleccionado
+                            } else {
+                                estadisticaTipo.value = EstadisticaTipo.EFECTIVA
+                            }
+                        }
                     }
                 }
-            )
-            Text(text = "Desactivar temporizador (registrar sin tiempo)", color = MaterialTheme.colorScheme.onBackground)
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(
+                            BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                            ), RoundedCornerShape(8.dp)
+                        )
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                        .padding(8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        EstadisticaPanel(tipo = estadisticaTipo.value)
+                    }
+                }
+            }
         }
 
-        Spacer(modifier = Modifier.size(8.dp))
+        //SECCION 3: PORTEROS
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .border(
+                    BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                    ), RoundedCornerShape(12.dp)
+                )
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(
+                            BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                            ), RoundedCornerShape(8.dp)
+                        )
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                        .padding(8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        PorterosToggle(
+                            estadisticaManager = estadisticaManager,
+                            estadisticaTipo = estadisticaTipo.value
+                        ) { nuevo -> activePortero.value = nuevo }
+                    }
+                }
+            }
+        }
 
-        PorterosToggle(
+
+
+
+
+        Spacer(modifier = Modifier.size(8.dp))
+//SECCION 4: CAMPO CON POSICIONES
+        PosicionesGrid(
+            onSelectPos = { pos ->
+                selectedPos.value =
+                    SelectedPosTime(pos, if (registrarSinTiempo) 0L else currentAbsoluteSeconds())
+            },
+            isBasico = isBasico,
+            registrarSinTiempo = registrarSinTiempo,
+            currentTimeSec = currentAbsoluteSeconds(),
             estadisticaManager = estadisticaManager,
             estadisticaTipo = estadisticaTipo.value
-        ) { nuevo -> activePortero.value = nuevo }
-
-        Spacer(modifier = Modifier.size(8.dp))
-
-        EstadisticaTipoSelector(current = estadisticaTipo.value, isVip = isVipLocal) { seleccionado ->
-            if (isVipLocal) {
-                estadisticaTipo.value = seleccionado
-            } else {
-                estadisticaTipo.value = EstadisticaTipo.EFECTIVA
-            }
-        }
-
-        Spacer(modifier = Modifier.size(8.dp))
-
-        EstadisticaPanel(tipo = estadisticaTipo.value)
-
-        Spacer(modifier = Modifier.size(8.dp))
-
-        // Mostrar inicio/pausa y temporizador sólo si NO estamos en modo "registrar sin tiempo"
-        if (!registrarSinTiempo) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { runningState.value = !runningState.value }) {
-                    Text(if (runningState.value) "Pausar" else "Iniciar")
-                }
-                Spacer(modifier = Modifier.size(8.dp))
-                Text(text = timerText + (if (matchDurationSec > 0) halfLabel else ""), color = timerColor, modifier = Modifier.padding(start = 12.dp))
-            }
-            Spacer(modifier = Modifier.size(12.dp))
-        } else {
-            // en modo sin tiempo, asegurar que el temporizador esté parado y no muestre mensajes
-            runningState.value = false
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val porterosList = MatchPorterosStore.getPorteros()
-            val statsVersion by EstadisticaStore.version.collectAsState()
-
-            for (pos in Posicion.values()) {
-                if (isBasico && pos != Posicion.ND) continue
-
-                val posEst = EstadisticaStore.getForPosition(pos)
-                val p1 = porterosList.getOrNull(0)
-                val p2 = porterosList.getOrNull(1)
-                @Suppress("UNUSED_VARIABLE")
-                val vRef = statsVersion
-
-                val est1 = estadisticaManager.getForPorteroAndPos(p1?.id, pos)
-                val est2 = estadisticaManager.getForPorteroAndPos(p2?.id, pos)
-
-                val pct1 = est1?.let { pctForTipo(estadisticaTipo.value, it) } ?: "X"
-                val pct2 = est2?.let { pctForTipo(estadisticaTipo.value, it) } ?: "X"
-
-                Button(onClick = {
-                    // si estamos en registrar sin tiempo, forzar tiempo 0L
-                    selectedPos.value = SelectedPosTime(pos, if (registrarSinTiempo) 0L else currentAbsoluteSeconds())
-                }, modifier = Modifier.weight(1f)) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = pos.abbr)
-                        Spacer(modifier = Modifier.size(4.dp))
-                        Text(text = "$pct1 - $pct2", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
+        )
 
         Spacer(modifier = Modifier.size(12.dp))
 
         val currentSelected = selectedPos.value
         if (currentSelected != null) {
-            AccionForm(
-                pos = currentSelected.pos,
-                tiempoSec = currentSelected.tiempoSec,
-                modalidad = modalidadState.value,
-                portero = activePortero.value,
-                // si registrarSinTiempo -> tratar como si el temporizador estuviera "activo" para permitir guardar sin diálogo
-                isTimerRunning = registrarSinTiempo || runningState.value,
-                onSave = { resultadoId, direccionId, porteroId ->
-                    val porteroSafe = porteroId ?: 0
-                    val tiempoStr = if (registrarSinTiempo) "00:00:00" else formatTimeHMS(currentSelected.tiempoSec)
-                    val accion = AccionPool.obtain().apply {
-                        portero = porteroSafe
-                        tiempo = tiempoStr
-                        posicion = currentSelected.pos.id
-                        direccion = direccionId
-                        resultado = resultadoId
+            val sel = currentSelected
+            Dialog(onDismissRequest = { selectedPos.value = null }) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .wrapContentWidth()
+                        .wrapContentHeight()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        AccionForm(
+                            pos = sel.pos,
+                            tiempoSec = sel.tiempoSec,
+                            modalidad = modalidadState.value,
+                            portero = activePortero.value,
+                            isTimerRunning = registrarSinTiempo || runningState.value,
+                            onSave = { resultadoId, direccionId, porteroId ->
+                                val porteroSafe = porteroId ?: 0
+                                val tiempoStr =
+                                    if (registrarSinTiempo) "00:00:00" else formatTimeHMS(sel.tiempoSec)
+                                val accion = AccionPool.obtain().apply {
+                                    portero = porteroSafe
+                                    tiempo = tiempoStr
+                                    posicion = sel.pos.id
+                                    direccion = direccionId
+                                    resultado = resultadoId
+                                }
+
+                                partido.addAccion(accion)
+                                EstadisticaStore.recordAccion(sel.pos, accion)
+                                estadisticaManager.recordAccion(porteroId, sel.pos, resultadoId)
+
+                                selectedPos.value = null
+                            },
+                            onCancel = { selectedPos.value = null }
+                        )
                     }
-
-                    partido.addAccion(accion)
-                    EstadisticaStore.recordAccion(currentSelected.pos, accion)
-                    estadisticaManager.recordAccion(porteroId, currentSelected.pos, resultadoId)
-
-                    selectedPos.value = null
-                },
-                onCancel = { selectedPos.value = null }
-            )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.size(16.dp))
 
+        // (resto de botones y diálogos idénticos a lo anterior)
         if (currentSelected == null && timeLimitReached.value && !secondHalfStarted.value && matchDurationSec > 0 && !registrarSinTiempo) {
             Button(onClick = {
                 secondHalfOffset.value = secondHalfOffset.value + matchDurationSec
@@ -621,38 +1291,78 @@ private fun PartidoScreen(
         }
 
         if (currentSelected == null) {
-            Button(onClick = { showFinishConfirm.value = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Finalizar partido")
+            val tieneAcciones = partido.acciones.isNotEmpty() // true si hay al menos una acción registrada
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // "Cancelar partido" - izquierda (1/3)
+                Button(
+                    onClick = { showExitConfirm.value = true },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFD32F2F),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text("Cancelar partido")
+                    }
+                }
+
+                // espacio central (1/3)
+                Spacer(modifier = Modifier.weight(1f))
+
+                // "Finalizar partido" - derecha (1/3)
+Button(
+    onClick = { showFinishConfirm.value = true },
+    enabled = tieneAcciones,
+    modifier = Modifier
+        .weight(1f)
+        .fillMaxWidth(),
+    colors = ButtonDefaults.buttonColors(
+        containerColor = Color(0xFF2E7D32),
+        contentColor = Color.White
+    )
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Text(if (tieneAcciones) "Finalizar partido" else "Finalizar partido (requiere acción)")
+    }
+}
             }
         }
-
-        Spacer(modifier = Modifier.size(8.dp))
-
-        if (currentSelected == null) {
-            Button(onClick = { showExitConfirm.value = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Salir sin finalizar")
-            }
-        }
-
         Spacer(modifier = Modifier.size(16.dp))
+
 
         if (showFinishConfirm.value) {
             AlertDialog(
                 onDismissRequest = { /* no dismiss */ },
                 title = { Text("Finalizar partido") },
-                text = { Text("¿Deseas finalizar el partido y ver el resumen?") },
+                text = { Text(if (isVipLocal) "¿Deseas finalizar el partido y ver el resumen?" else "¿Desea finalizar el partido?") },
                 confirmButton = {
                     TextButton(onClick = {
                         showFinishConfirm.value = false
                         sending.value = true
 
                         scope.launch {
+                            var falloEnvio = false
                             try {
                                 PartidoRepository.enviarPartidoSiVip(partido)
-                            } catch (_: Throwable) {
+                            } catch (t: Throwable) {
+                                falloEnvio = true
                             } finally {
                                 val destIntent = if (SessionManager.getUser()?.vip == true) {
-                                    Intent(context, ResumenActivity::class.java)
+                                    Intent(context, ResumenActivity::class.java).apply {
+                                        putExtra("envio_fallado", falloEnvio)
+                                    }
                                 } else {
                                     Intent(context, InicioActivity::class.java)
                                 }
@@ -710,7 +1420,6 @@ private fun AccionForm(
     val defaultDireccionId = Direcciones.ND.id
     val selectedDireccionId = remember { mutableStateOf(defaultDireccionId) }
 
-    // allowedToSave se inicializa con isTimerRunning; si isTimerRunning=true (incluye modo sin tiempo) no se mostrará diálogo
     val allowedToSave = remember { mutableStateOf(isTimerRunning) }
     LaunchedEffect(isTimerRunning) { if (isTimerRunning) allowedToSave.value = true }
 
@@ -720,7 +1429,8 @@ private fun AccionForm(
         }
     }
 
-    val tiempoText = String.format("%02d:%02d:%02d", tiempoSec / 3600, (tiempoSec % 3600) / 60, tiempoSec % 60)
+    val tiempoText =
+        String.format("%02d:%02d:%02d", tiempoSec / 3600, (tiempoSec % 3600) / 60, tiempoSec % 60)
     val porteroDisplay = portero?.let { "${it.nombre.orEmpty()} ${it.apellidos.orEmpty()}" } ?: ""
 
     if (!isTimerRunning && !allowedToSave.value) {
@@ -736,57 +1446,322 @@ private fun AccionForm(
         )
     }
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-        Text(text = pos.key, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(8.dp))
+    val activeColor = Color(0xFF2E7D32)
+    val inactiveColor = MaterialTheme.colorScheme.surfaceVariant
+    val lineColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
 
-        OutlinedTextField(
-            value = tiempoText,
-            onValueChange = { },
-            label = { Text("Tiempo") },
-            enabled = false,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+    ) {
+        Text(
+            text = pos.key,
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(8.dp)
         )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = tiempoText,
+                onValueChange = { },
+                label = { Text("Tiempo") },
+                enabled = false,
+                modifier = Modifier.weight(0.3f)
+            )
+
+            OutlinedTextField(
+                value = porteroDisplay,
+                onValueChange = { },
+                label = { Text("Portero") },
+                enabled = false,
+                modifier = Modifier.weight(0.7f)
+            )
+        }
 
         Spacer(modifier = Modifier.size(8.dp))
 
-        OutlinedTextField(
-            value = porteroDisplay,
-            onValueChange = { },
-            label = { Text("Portero") },
-            enabled = false,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        Text(
+            text = "Resultado",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 8.dp)
         )
 
-        Spacer(modifier = Modifier.size(8.dp))
-
-        Text(text = "Resultado", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-        for (r in Resultado.values()) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                Checkbox(
-                    checked = selectedResultadoId.value == r.id,
-                    onCheckedChange = { checked ->
-                        if (checked) selectedResultadoId.value = r.id else selectedResultadoId.value = null
-                    }
-                )
-                Spacer(modifier = Modifier.size(8.dp))
-                Text(text = r.key)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            for (r in Resultado.values()) {
+                val isSelected = selectedResultadoId.value == r.id
+                Button(
+                    onClick = { selectedResultadoId.value = if (isSelected) null else r.id },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSelected) activeColor else inactiveColor,
+                        contentColor = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = r.key)
+                }
             }
         }
 
         Spacer(modifier = Modifier.size(8.dp))
 
         if (modalidad.equals("detallado", ignoreCase = true)) {
-            Text(text = "Dirección", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-            for (d in Direcciones.values()) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                    Checkbox(
-                        checked = selectedDireccionId.value == d.id,
-                        onCheckedChange = { checked ->
-                            if (checked) selectedDireccionId.value = d.id
+            Text(
+                text = "Dirección",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+
+            // Tamaño del checkbox (ajustable)
+            val cbSize = 28.dp
+            val outerSize = cbSize * 3
+            val cellHeight = outerSize / 3f
+            val strokePx = with(LocalDensity.current) { 1.dp.toPx() }
+
+            // Buscar entradas específicas
+            val allDirs = Direcciones.values()
+            val ndDir = Direcciones.ND
+            val roscaDir = allDirs.firstOrNull {
+                it.key.equals("Rosca", ignoreCase = true) || (it.desc?.equals(
+                    "rosca",
+                    true
+                ) == true)
+            }
+            val vaselinaDir = allDirs.firstOrNull {
+                it.key.equals(
+                    "Vaselina",
+                    ignoreCase = true
+                ) || (it.desc?.equals("vaselina", true) == true)
+            }
+
+            // Tres columnas que ocupan todo el ancho
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Columna 1: ND alineado a la fila central (segunda)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Tres "celdas" verticales para posicionamiento exacto (alto = outerSize)
+                    Column(modifier = Modifier.height(outerSize)) {
+                        // fila 1 (vacía)
+                        Box(
+                            modifier = Modifier
+                                .height(cellHeight)
+                                .fillMaxWidth()
+                        ) { /* vacía */ }
+                        // fila 2 (ND)
+                        Box(
+                            modifier = Modifier
+                                .height(cellHeight)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .padding(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val checked = selectedDireccionId.value == ndDir.id
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { now ->
+                                        if (now) selectedDireccionId.value = ndDir.id
+                                        else selectedDireccionId.value = defaultDireccionId
+                                    },
+                                    modifier = Modifier.size(cbSize)
+                                )
+                                Spacer(modifier = Modifier.size(8.dp))
+                                Text(text = ndDir.desc ?: ndDir.key)
+                            }
                         }
-                    )
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text(text = d.key)
+                        // fila 3 (vacía)
+                        Box(
+                            modifier = Modifier
+                                .height(cellHeight)
+                                .fillMaxWidth()
+                        ) { /* vacía */ }
+                    }
+                }
+
+                // Columna 2: tabla 3x3 (portería) centrada
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(outerSize)
+                            .clip(RoundedCornerShape(6.dp))
+                            .border(BorderStroke(1.dp, lineColor), RoundedCornerShape(6.dp))
+                    ) {
+                        // Líneas internas
+                        androidx.compose.foundation.Canvas(modifier = Modifier.matchParentSize()) {
+                            val w = size.width
+                            val h = size.height
+                            val thirdW = w / 3f
+                            val thirdH = h / 3f
+                            val c = lineColor
+                            drawLine(
+                                color = c,
+                                start = androidx.compose.ui.geometry.Offset(thirdW, 0f),
+                                end = androidx.compose.ui.geometry.Offset(thirdW, h),
+                                strokeWidth = strokePx
+                            )
+                            drawLine(
+                                color = c,
+                                start = androidx.compose.ui.geometry.Offset(2f * thirdW, 0f),
+                                end = androidx.compose.ui.geometry.Offset(2f * thirdW, h),
+                                strokeWidth = strokePx
+                            )
+                            drawLine(
+                                color = c,
+                                start = androidx.compose.ui.geometry.Offset(0f, thirdH),
+                                end = androidx.compose.ui.geometry.Offset(w, thirdH),
+                                strokeWidth = strokePx
+                            )
+                            drawLine(
+                                color = c,
+                                start = androidx.compose.ui.geometry.Offset(0f, 2f * thirdH),
+                                end = androidx.compose.ui.geometry.Offset(w, 2f * thirdH),
+                                strokeWidth = strokePx
+                            )
+                        }
+
+                        // Checkboxes centrados en cada celda, tamaño cbSize
+                        Column(modifier = Modifier.matchParentSize()) {
+                            for (row in 0 until 3) {
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                ) {
+                                    for (col in 0 until 3) {
+                                        val idx = row * 3 + col
+                                        val d = allDirs.getOrNull(idx)
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (d != null) {
+                                                val checked = selectedDireccionId.value == d.id
+                                                Checkbox(
+                                                    checked = checked,
+                                                    onCheckedChange = { checkedNow ->
+                                                        if (checkedNow) selectedDireccionId.value =
+                                                            d.id
+                                                        else selectedDireccionId.value =
+                                                            defaultDireccionId
+                                                    },
+                                                    modifier = Modifier.size(cbSize)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Columna 3: Rosca arriba (fila 1) y Vaselina abajo (fila 3)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Column(modifier = Modifier.height(outerSize)) {
+                        // fila 1 (Rosca)
+                        Box(
+                            modifier = Modifier
+                                .height(cellHeight)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (roscaDir != null) {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .padding(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val checked = selectedDireccionId.value == roscaDir.id
+                                    Checkbox(
+                                        checked = checked,
+                                        onCheckedChange = { now ->
+                                            if (now) selectedDireccionId.value = roscaDir.id
+                                            else selectedDireccionId.value = defaultDireccionId
+                                        },
+                                        modifier = Modifier.size(cbSize)
+                                    )
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                    Text(text = roscaDir.desc ?: roscaDir.key)
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(4.dp)
+                                ) { /* placeholder si falta */ }
+                            }
+                        }
+                        // fila 2 (vacía)
+                        Box(
+                            modifier = Modifier
+                                .height(cellHeight)
+                                .fillMaxWidth()
+                        ) { /* vacía */ }
+                        // fila 3 (Vaselina)
+                        Box(
+                            modifier = Modifier
+                                .height(cellHeight)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (vaselinaDir != null) {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .padding(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val checked = selectedDireccionId.value == vaselinaDir.id
+                                    Checkbox(
+                                        checked = checked,
+                                        onCheckedChange = { now ->
+                                            if (now) selectedDireccionId.value = vaselinaDir.id
+                                            else selectedDireccionId.value = defaultDireccionId
+                                        },
+                                        modifier = Modifier.size(cbSize)
+                                    )
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                    Text(text = vaselinaDir.desc ?: vaselinaDir.key)
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(4.dp)
+                                ) { /* placeholder si falta */ }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -801,7 +1776,11 @@ private fun AccionForm(
                     return@Button
                 }
                 if (!allowedToSave.value) {
-                    Toast.makeText(ctx, "El tiempo está parado. Pulsa Aceptar para confirmar.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        ctx,
+                        "El tiempo está parado. Pulsa Aceptar para confirmar.",
+                        Toast.LENGTH_SHORT
+                    ).show()
                     return@Button
                 }
                 onSave(resId, selectedDireccionId.value, portero?.id)

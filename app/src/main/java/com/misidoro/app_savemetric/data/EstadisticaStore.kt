@@ -28,6 +28,11 @@ object EstadisticaStore {
     }
 
     @Synchronized
+    fun getForPositionFlow(pos: Posicion): StateFlow<Estadistica> {
+        val flow = byPosition.getOrPut(pos) { MutableStateFlow(Estadistica()) }
+        return flow.asStateFlow()
+    }
+    @Synchronized
     fun getGlobal(): Estadistica = _global.value
 
     @Synchronized
@@ -49,9 +54,10 @@ object EstadisticaStore {
 
         val r = Resultado.fromId(accion.resultado)
         val key = r?.key?.lowercase() ?: ""
+        val id= r?.id ?: -1
 
-        when (key) {
-            "gol" -> {
+        when (id) {
+            1 -> {
                 posStat.goles += 1
                 newGlobal.goles += 1
 
@@ -60,7 +66,7 @@ object EstadisticaStore {
                 newGlobal.accionesReales += 1
                 newGlobal.accionesEfectivas += 1
             }
-            "parada_efectiva" -> {
+            2 -> {
                 posStat.paradasTotales += 1
                 posStat.paradasValidas += 1
                 newGlobal.paradasTotales += 1
@@ -71,20 +77,20 @@ object EstadisticaStore {
                 newGlobal.accionesReales += 1
                 newGlobal.accionesEfectivas += 1
             }
-            "parada_nula" -> {
+            3 -> {
                 posStat.paradasTotales += 1
                 newGlobal.paradasTotales += 1
 
                 posStat.accionesReales += 1
                 newGlobal.accionesReales += 1
             }
-            "no_gol_efectivo" -> {
+            4 -> {
                 posStat.noGolesTotales += 1
                 posStat.noGolesValidos += 1
                 newGlobal.noGolesTotales += 1
                 newGlobal.noGolesValidos += 1
             }
-            "no_gol_nulo" -> {
+            5 -> {
                 posStat.noGolesTotales += 1
                 newGlobal.noGolesTotales += 1
             }

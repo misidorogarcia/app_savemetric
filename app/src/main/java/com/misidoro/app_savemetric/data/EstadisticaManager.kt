@@ -40,29 +40,28 @@ class EstadisticaManager {
 
     private fun aplicarResultadoAEstadistica(estad: Estadistica, resultadoId: Int) {
         estad.accionesTotales += 1
-        val r = Resultado.fromId(resultadoId)
-        val key = r?.key?.lowercase() ?: ""
-        when (key) {
-            "gol" -> {
+        val id = resultadoId
+        when (id) {
+            1-> {
                 estad.goles += 1
                 estad.accionesReales += 1
                 estad.accionesEfectivas += 1
             }
-            "parada_efectiva" -> {
+            2 -> {
                 estad.paradasTotales += 1
                 estad.paradasValidas += 1
                 estad.accionesReales += 1
                 estad.accionesEfectivas += 1
             }
-            "parada_nula" -> {
+            3-> {
                 estad.paradasTotales += 1
                 estad.accionesReales += 1
             }
-            "no_gol_efectivo" -> {
+            4 -> {
                 estad.noGolesTotales += 1
                 estad.noGolesValidos += 1
             }
-            "no_gol_nulo" -> {
+            5-> {
                 estad.noGolesTotales += 1
             }
             else -> { /* otros */ }

@@ -28,7 +28,7 @@ object PartidoStore {
                     raw.toLongOrNull()
                         // si no es número: intentar parsear como "yyyy-MM-dd" o "yyyy-MM-dd HH:mm"
                         ?: runCatching {
-                            val formats = listOf("yyyy-MM-dd", "yyyy-MM-dd HH:mm", "dd/MM/yyyy")
+                            val formats = listOf("yyyy-MM-dd", "yyyy-MM-dd HH:mm", "dd/MM/yyyy", "dd-MM-yyyy")
                             var parsed: Long? = null
                             for (f in formats) {
                                 try {

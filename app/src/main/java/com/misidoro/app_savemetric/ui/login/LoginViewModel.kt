@@ -32,6 +32,10 @@ class LoginViewModel(private val repository: AuthRepository) : ViewModel() {
             errorMessage = "Email y contraseña son obligatorios"
             return
         }
+        if (password.length < 8) {
+            errorMessage = "La contraseña debe tener al menos 8 caracteres"
+            return
+        }
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
@@ -49,7 +53,6 @@ class LoginViewModel(private val repository: AuthRepository) : ViewModel() {
                     }
                 },
                 onFailure = { throwable ->
-                    // Mapear 401 a mensaje claro de credenciales inválidas
                     if (throwable is HttpException && throwable.code() == 401) {
                         errorMessage = "Usuario y/o contraseña no válidos"
                     } else {
